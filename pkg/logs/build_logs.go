@@ -32,24 +32,31 @@ func (c *BuildLogsClient) Tail(ctx context.Context, writer io.Writer, image, bui
 	return c.tailPods(ctx, writer, namespace, metav1.ListOptions{
 		Watch:         true,
 		LabelSelector: fmt.Sprintf("%s=%s,%s=%s", v1alpha1.ImageLabel, image, v1alpha1.BuildNumberLabel, build),
-	}, true)
+	}, true, true)
 }
 
 func (c *BuildLogsClient) TailImage(ctx context.Context, writer io.Writer, image, namespace string) error {
 	return c.tailPods(ctx, writer, namespace, metav1.ListOptions{
 		Watch:         true,
 		LabelSelector: fmt.Sprintf("%s=%s", v1alpha1.ImageLabel, image),
-	}, false)
+	}, false, true)
+}
+
+func (c *BuildLogsClient) GetImageLogs(ctx context.Context, writer io.Writer, image, namespace string) error {
+	return c.tailPods(ctx, writer, namespace, metav1.ListOptions{
+		Watch:         false,
+		LabelSelector: fmt.Sprintf("%s=%s", v1alpha1.ImageLabel, image),
+	}, true, false)
 }
 
 func (c *BuildLogsClient) TailBuildName(ctx context.Context, writer io.Writer, namespace string, buildName string) error {
 	return c.tailPods(ctx, writer, namespace, metav1.ListOptions{
 		Watch:         true,
 		LabelSelector: fmt.Sprintf("%s=%s", v1alpha1.BuildLabel, buildName),
-	}, true)
+	}, true, true)
 }
 
-func (c *BuildLogsClient) tailPods(ctx context.Context, writer io.Writer, namespace string, listOptions metav1.ListOptions, exitPodComplete bool) error {
+func (c *BuildLogsClient) tailPods(ctx context.Context, writer io.Writer, namespace string, listOptions metav1.ListOptions, exitPodComplete bool, follow bool) error {
 	readyContainers := make(chan readyContainer)
 
 	go func() {
@@ -62,7 +69,7 @@ func (c *BuildLogsClient) tailPods(ctx context.Context, writer io.Writer, namesp
 	}()
 
 	for container := range readyContainers {
-		err := c.streamLogsForContainer(ctx, writer, container)
+		err := c.streamLogsForContainer(ctx, writer, container, follow)
 		if err != nil {
 			return err
 		}
@@ -131,7 +138,7 @@ func finished(pod *corev1.Pod) bool {
 	return pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded
 }
 
-func (c *BuildLogsClient) streamLogsForContainer(ctx context.Context, writer io.Writer, readyContainer readyContainer) error {
+func (c *BuildLogsClient) streamLogsForContainer(ctx context.Context, writer io.Writer, readyContainer readyContainer, follow bool) error {
 	if _, alreadyProcessed := c.processed[readyContainer]; alreadyProcessed {
 		return nil
 	}
@@ -139,7 +146,7 @@ func (c *BuildLogsClient) streamLogsForContainer(ctx context.Context, writer io.
 
 	logReadCloser, err := c.k8sClient.CoreV1().Pods(readyContainer.namespace).GetLogs(readyContainer.podName, &corev1.PodLogOptions{
 		Container: readyContainer.containerName,
-		Follow:    true}).Stream()
+		Follow:    follow}).Stream()
 	if err != nil {
 		return err
 	}

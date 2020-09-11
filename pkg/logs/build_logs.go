@@ -78,6 +78,23 @@ func (c *BuildLogsClient) tailPods(ctx context.Context, writer io.Writer, namesp
 	return nil
 }
 
+func (c *BuildLogsClient) getPodLogs(ctx context.Context, writer io.Writer, namespace string, listOptions metav1.ListOptions, follow bool) error {
+	readyContainers, err := c.getContainers(ctx, namespace, listOptions)
+
+	if err != nil {
+		return err
+	}
+
+	for _, container := range readyContainers {
+		err := c.streamLogsForContainer(ctx, writer, container, follow)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 type readyContainer struct {
 	podName       string
 	containerName string
@@ -132,6 +149,38 @@ func (c *BuildLogsClient) watchReadyContainers(ctx context.Context, readyContain
 			}
 		}
 	}
+}
+
+func (c *BuildLogsClient) getContainers(ctx context.Context, namespace string, listOptions metav1.ListOptions) ([]readyContainer, error) {
+
+	readyContainers := make([]readyContainer, 0)
+	pods, err := c.k8sClient.CoreV1().Pods(namespace).List(listOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, pod := range pods.Items {
+		for _, c := range pod.Status.InitContainerStatuses {
+			if c.State.Waiting == nil {
+				readyContainers = append(readyContainers, readyContainer{
+					podName:       pod.Name,
+					containerName: c.Name,
+					namespace:     pod.Namespace,
+				})
+			}
+		}
+
+		for _, c := range pod.Status.ContainerStatuses {
+			if c.State.Waiting == nil {
+				readyContainers = append(readyContainers, readyContainer{
+					podName:       pod.Name,
+					containerName: c.Name,
+					namespace:     pod.Namespace,
+				})
+			}
+		}
+	}
+	return readyContainers, nil
 }
 
 func finished(pod *corev1.Pod) bool {

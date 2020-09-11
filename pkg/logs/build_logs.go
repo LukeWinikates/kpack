@@ -43,10 +43,10 @@ func (c *BuildLogsClient) TailImage(ctx context.Context, writer io.Writer, image
 }
 
 func (c *BuildLogsClient) GetImageLogs(ctx context.Context, writer io.Writer, image, namespace string) error {
-	return c.tailPods(ctx, writer, namespace, metav1.ListOptions{
+	return c.getPodLogs(ctx, writer, namespace, metav1.ListOptions{
 		Watch:         false,
 		LabelSelector: fmt.Sprintf("%s=%s", v1alpha1.ImageLabel, image),
-	}, true, false)
+	}, false)
 }
 
 func (c *BuildLogsClient) TailBuildName(ctx context.Context, writer io.Writer, namespace string, buildName string) error {
